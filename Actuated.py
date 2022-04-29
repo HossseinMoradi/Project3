@@ -1,277 +1,234 @@
 import math
+import ast
+from math import e
+from decimal import *
+import time
+import random
 
-def factorial(f):
-    if f == 0:
-        return 1
-    else:
-        return f * factorial(f-1)
+
+
+getcontext().prec = 28
+
+
+# first we have defined functions to access signals and vehicles data
 
 def toList(NestedTuple):
     return list(map(toList, NestedTuple)) if isinstance(NestedTuple, (list, tuple)) else NestedTuple
-def Init():
-    global minSpeed
-    global MaxSpeed
-    global MaximumNumber
-    global MaximumHeadway 
-    global vehTypesEquipped
-    global sigTypesAttributes
-    global LinkTypesAttributes
-    global GV
-    global EV
-    global GVCAV
-    global SCAV
-    global LinkA
-    global LinkB
-    global LinkC
-    global LinkD
-    global SignalA
-    global SignalB
-    global SignalC
-    global SignalD
-    
-    minSpeed = CurrentScript.AttValue('minSpeed')
-    MaxSpeed = CurrentScript.AttValue('MaxSpeed')
-    MaximumNumber = CurrentScript.AttValue('MaximumNumber')
-    MaximumHeadway = CurrentScript.AttValue('MaximumHeadway')
-    vehTypesAttributes = Vissim.Net.VehicleTypes.GetMultipleAttributes(['No', 'ReceiveSignalInformation','GV','EV','GVCAV','SCAV'])
-    
-    vehTypesEquipped = [x[0] for x in vehTypesAttributes if x[1] == True]
-    GV = [x[0] for x in vehTypesAttributes if x[2] == True]
-    EV = [x[0] for x in vehTypesAttributes if x[3] == True]
-    GVCAV = [x[0] for x in vehTypesAttributes if x[4] == True]
-    SCAV = [x[0] for x in vehTypesAttributes if x[5] == True]
 
-
-
-    LinkTypesAttributes =  Vissim.Net.Links.GetMultipleAttributes(['No', 'LinkA', 'LinkB', 'LinkC', 'LinkD'])
-    LinkA = [x[0] for x in LinkTypesAttributes if x[1] == True]
-    LinkB = [x[0] for x in LinkTypesAttributes if x[2] == True]
-    LinkC = [x[0] for x in LinkTypesAttributes if x[3] == True]
-    LinkD = [x[0] for x in LinkTypesAttributes if x[4] == True]
-    
-    
-    
-    
-    sigTypesAttributes =  Vissim.Net.SignalControllers.ItemByKey(1).SGs.GetMultipleAttributes(['No', 'SignalA', 'SignalB', 'SignalC', 'SignalD'])
-    SignalA = [x[0] for x in sigTypesAttributes if x[1] == True]
-    SignalB = [x[0] for x in sigTypesAttributes if x[2] == True]
-    SignalC = [x[0] for x in sigTypesAttributes if x[3] == True]
-    SignalD = [x[0] for x in sigTypesAttributes if x[4] == True]
-    # This functions gets and updates each vehicle state at the network
-
+# we want to access vehicles information. In the first part of the below function, we determine the pieces of data that are collected. In the secoond part we determine that which types of vehicles are CV/special (i.e, sending information) 
 def GetVissimDataVehicles():
     global vehsAttributes
     global vehsAttNames
-    vehsAttributes = []
-    vehsAttNames = []
-    vehsAttributesNames = ['No', 'VehType\No','Speed' , 'DesSpeed', 'OrgDesSpeed', 'DistanceToSigHead', 'SpeedMaxForGreenStart', 'SpeedMinForGreenEnd', 'Acceleration', 'Lane\Link']
+    vehsAttributesNames = ['No', 'VehType\No', 'Pos', 'VehType\No', 'Lane\Link', 'Speed', 'DistanceToSigHead','InQueue']
     vehsAttributes = toList(Vissim.Net.Vehicles.GetMultipleAttributes(vehsAttributesNames))
     vehsAttNames = {}
     cnt = 0
     for att in vehsAttributesNames:
         vehsAttNames.update({att: cnt})
         cnt += 1
+    global vehTypesEquipped
+    global vehTypesSpecial
+    vehTypesAttributes = Vissim.Net.VehicleTypes.GetMultipleAttributes(['No', 'IsCV', 'IsSpecial'])
+    vehTypesEquipped = [x[0] for x in vehTypesAttributes if x[1] == True]
+    vehTypesSpecial = [x[0] for x in vehTypesAttributes if x[2] == True]
 
 
 
-# This function takes the specification of each signal
-def GetSignalsData():
-    global SignalAttributes
-    global SigAttNames
-    SignalAttributes = []
-    SigAttNames = []
-    SignalAttributesNames = ['No','Name', 'GreenStart', 'GreenEnd','TimeUntilNextGreen','TimeUntilNextRed', 'SignalA', 'SignalB', 'SignalC', 'SignalD','SigState', 'GreenTimeDuration' ,'LastCAVPos','SigState', 'SC\CycSec', 'Seconds']
-    SignalAttributes = toList(Vissim.Net.SignalControllers.ItemByKey(1).SGs.GetMultipleAttributes(SignalAttributesNames))
-    SigAttNames = {}
-    ctt = 0
-    for ftt in SignalAttributesNames:
-        SigAttNames.update({ftt: ctt})
-        ctt+=1
 
 
-def GetLinksData():
-    global LinkAttributes
-    global LinAttNames
-    LinkAttributes = []
-    LinkAttributes = []
-    LinkAttributesNames = ['No','LinkA', 'LinkB', 'LinkC', 'LinkD']
-    LinkAttributes = toList(Vissim.Net.Links.GetMultipleAttributes(LinkAttributesNames))
-    LinAttNames = {}
-    ppc = 0
-    for ftt in LinkAttributesNames:
-        LinAttNames.update({ftt: ppc})
-        ppc+=1
 
 
-def GetTrafficFleetData():
-    global trafficAttributes
-    global traAttNames
-    trafficAttributes = []
-    traAttNames = []
-    TrafficAttributesNames = ['VehType\No','RelFlow']
-    trafficAttributes = toList(Vissim.Net.VehicleCompositions.ItemByKey(5).VehCompRelFlows.GetMultipleAttributes(TrafficAttributesNames))
-    traAttNames = {}
-    gtp = 0
-    for ptg in TrafficAttributesNames:
-        traAttNames.update({ptg: gtp})
-        gtp+=1
 
-# This calculates the number of queued up vehicles based on the Commert's formula and the corresponding green time
-def NumberOfQueuedVehicles():
+
+def Signal():
+    #we define a user attributre to access SimSec
+    Vissim.Net.SignalControllers.ItemByKey(1).SetAttValue('SimSec',Vissim.Net.Simulation.SimulationSecond)
+    Seconds = Vissim.Net.SignalControllers.ItemByKey(1).AttValue('CycSec')
+    SimSec = Vissim.Net.SignalControllers.ItemByKey(1).AttValue('SimSec')
+    CLength = 60
     GetVissimDataVehicles()
-    GetTrafficFleetData()
-    GetSignalsData()
-    GetLinksData()
-
-    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue ('Seconds',Vissim.Net.Simulation.SimulationSecond)
-    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).SetAttValue ('Seconds',Vissim.Net.Simulation.SimulationSecond)
-    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).SetAttValue ('Seconds',Vissim.Net.Simulation.SimulationSecond)
-    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).SetAttValue ('Seconds',Vissim.Net.Simulation.SimulationSecond)
-    C = []
-    B = []
-    A = []
-    D = []
-
-    for sig in SignalAttributes:
-            if  sig[SigAttNames['No']] ==3 and sig[SigAttNames['SigState']] !='Red':  
-                for vehAttributes in vehsAttributes:
-                    Link = vehAttributes[vehsAttNames['Lane\Link']]
-                    DistanceToSigHead = vehAttributes[vehsAttNames['DistanceToSigHead']]
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue ('LinkNo',Link)
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).SetAttValue ('LinkNo',Link)
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).SetAttValue ('LinkNo',Link)
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).SetAttValue ('LinkNo',Link)
-                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('LinkNo')==5:
-                        if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('Seconds') > Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('GreenStart')+Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('GreenTimeDuration')-3:
-                            if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('Seconds') <= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('GreenStart')+Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('GreenTimeDuration')-2:
-                                if vehAttributes[vehsAttNames['DistanceToSigHead']] <=30 and vehAttributes[vehsAttNames['DistanceToSigHead']] >= 10:
-                                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue ('GreenTimeDuration',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue('GreenTimeDuration')+2)
-                                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue('GreenTimeDuration')>=25:
-                                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue ('GreenTimeDuration',25)
-                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue ('GreenEnd',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('GreenTimeDuration')+Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('GreenStart'))         
-                if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('Seconds') >= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('GreenEnd'):
-                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('Seconds') < Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('GreenEnd')+2:
-                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue ('SigState','Red')
-                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).SetAttValue ('GreenStart',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('GreenEnd')+4)
-                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).SetAttValue ('GreenStart',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('GreenEnd')+4)
-                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).SetAttValue ('GreenStart',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('GreenEnd')+4)      
-                if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('Seconds') >= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('GreenEnd')+4:                   
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).SetAttValue ('SigState','Green')
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue ('SigState','Red')
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).SetAttValue ('SigState','Red')
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).SetAttValue ('SigState','Red')
-                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('Seconds') < Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('GreenEnd')+5:
-                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue ('GreenTimeDuration',7)
-                        
-                
-                
-            if  sig[SigAttNames['No']] ==6 and sig[SigAttNames['SigState']] !='Red':
-                for vehAttributes in vehsAttributes:
-                    Link = vehAttributes[vehsAttNames['Lane\Link']]
-                    DistanceToSigHead = vehAttributes[vehsAttNames['DistanceToSigHead']]
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue ('LinkNo',Link)
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).SetAttValue ('LinkNo',Link)
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).SetAttValue ('LinkNo',Link)
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).SetAttValue ('LinkNo',Link)
-                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('LinkNo')==7:
-                        if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('Seconds') > Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('GreenStart')+Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('GreenTimeDuration')-3:
-                            if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('Seconds') <= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('GreenStart')+Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('GreenTimeDuration')-2:
-                                if vehAttributes[vehsAttNames['DistanceToSigHead']] <=30 and vehAttributes[vehsAttNames['DistanceToSigHead']] >= 10:
-                                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).SetAttValue ('GreenTimeDuration',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue('GreenTimeDuration')+2)
-                                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue('GreenTimeDuration')>=25:
-                                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).SetAttValue ('GreenTimeDuration',25)
-                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).SetAttValue ('GreenEnd',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('GreenTimeDuration')+Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('GreenStart'))
-                if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('Seconds') >= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('GreenEnd'):
-                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('Seconds') < Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('GreenEnd')+2:
-                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).SetAttValue ('SigState','Red')
-                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).SetAttValue ('GreenStart',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('GreenEnd')+4)
-                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).SetAttValue ('GreenStart',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('GreenEnd')+4)
-                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue ('GreenStart',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('GreenEnd')+4)
-                if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('Seconds') >= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('GreenEnd')+4:
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).SetAttValue ('SigState','Green')
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue ('SigState','Red')
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).SetAttValue ('SigState','Red')
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).SetAttValue ('SigState','Red')
-                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('Seconds') < Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('GreenEnd')+5:
-                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).SetAttValue ('GreenTimeDuration',7)
-                        
-
-               
- 
+    deltaT=1
+    #we should correlate deltaT with the simulation resolution. In other words, number of simulation per second should be one here. 
+    Starting_time=0
+    Ending_time=1000
+    
+    TimeNo=[]
+    i=Starting_time
+    k=0
+    while i< Ending_time:
+        TimeNo.append(k)
+        k+=1
+        i=i+deltaT
 
 
 
-            if  sig[SigAttNames['No']] ==9 and sig[SigAttNames['SigState']] !='Red':
-                for vehAttributes in vehsAttributes:
-                    Link = vehAttributes[vehsAttNames['Lane\Link']]
-                    DistanceToSigHead = vehAttributes[vehsAttNames['DistanceToSigHead']]
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue ('LinkNo',Link)
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).SetAttValue ('LinkNo',Link)
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).SetAttValue ('LinkNo',Link)
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).SetAttValue ('LinkNo',Link)
-                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('LinkNo')==1:
-                        if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('Seconds') >= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('GreenStart')+Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('GreenTimeDuration')-3:
-                            if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('Seconds') <= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('GreenStart')+Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('GreenTimeDuration')-2:
-                                if vehAttributes[vehsAttNames['DistanceToSigHead']] <=30 and vehAttributes[vehsAttNames['DistanceToSigHead']] >= 10:
-                                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).SetAttValue ('GreenTimeDuration',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue('GreenTimeDuration')+2)
-                                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue('GreenTimeDuration')>=25:
-                                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).SetAttValue ('GreenTimeDuration',25)
+    # The operation of our actuated signal is as follows: we start with a minimum green time. If there is a vehicles still reamining on our detectors, we add an extention time to our green time. WE also consider a maximum green time.
+
+    MinG=5
+    MaxG=35
+    ExG=3
+    deterctor=35
+    loc=25
+    for i in TimeNo:
+        if SimSec > (i)*deltaT and SimSec <= (i+1)*deltaT:
+            # this is anexample of a case where green time durations and cycles are varying at each time step
+            if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).AttValue('SigState')=='RED':
+                if SimSec <= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).AttValue('GreenStart'):
+                    G1=MinG
+                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).SetAttValue('GreenTimeDuration', G1)                
+            
+            k=[]
+            for vehAttributes in vehsAttributes:
+                if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).AttValue('SigState')=='GREEN':
+                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).AttValue('GreenEnd')-SimSec <=3:
+                        if vehAttributes[vehsAttNames['Lane\Link']] == '1':
+                            DistanceToSigHead = vehAttributes[vehsAttNames['DistanceToSigHead']]
+                            if DistanceToSigHead >= loc and DistanceToSigHead <= loc+deterctor and vehAttributes[vehsAttNames['No']] not in k:
+                                k.append(vehAttributes[vehsAttNames['No']])
+                                G1=min((Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).AttValue('GreenTimeDuration')+ExG),MaxG)                                                  
+                                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).SetAttValue('GreenTimeDuration', G1)
+                continue
 
 
 
-                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).SetAttValue ('GreenEnd',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('GreenTimeDuration')+Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('GreenStart'))
-                if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('Seconds') >= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('GreenEnd'):
-                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('Seconds') < Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('GreenEnd')+2:
-                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).SetAttValue ('SigState','Red')
-                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).SetAttValue ('GreenStart',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('GreenEnd')+4)
-                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue ('GreenStart',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('GreenEnd')+4)
-                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).SetAttValue ('GreenStart',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('GreenEnd')+4)
-                if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('Seconds') >= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('GreenEnd')+4:
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).SetAttValue ('SigState','Green')
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue ('SigState','Red')
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).SetAttValue ('SigState','Red')
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).SetAttValue ('SigState','Red')
-                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('Seconds') < Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).AttValue ('GreenEnd')+5:
-                            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).SetAttValue ('GreenTimeDuration',7)
-
-                        
-
-
-            if  sig[SigAttNames['No']] ==12 and sig[SigAttNames['SigState']] !='Red':
-                for vehAttributes in vehsAttributes:
-                    Link = vehAttributes[vehsAttNames['Lane\Link']]
-                    DistanceToSigHead = vehAttributes[vehsAttNames['DistanceToSigHead']]
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue ('LinkNo',Link)
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).SetAttValue ('LinkNo',Link)
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).SetAttValue ('LinkNo',Link)
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).SetAttValue ('LinkNo',Link)
-                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('LinkNo')==3:
-                        if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('Seconds') > Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('GreenStart')+Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('GreenTimeDuration')-3:
-                            if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('Seconds') <= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('GreenStart')+Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('GreenTimeDuration')-2:
-                                if vehAttributes[vehsAttNames['DistanceToSigHead']] <=30 and vehAttributes[vehsAttNames['DistanceToSigHead']] >= 10:
-                                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).SetAttValue ('GreenTimeDuration',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue('GreenTimeDuration')+2)
-                                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue('GreenTimeDuration')>=25:
-                                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).SetAttValue ('GreenTimeDuration',25)
+            if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).AttValue('SigState')=='RED':
+                if SimSec < Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).AttValue('GreenStart'):               
+                    G2=MinG
+                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).SetAttValue('GreenTimeDuration', G2)
+            k2=[]
+            for vehAttributes in vehsAttributes:
+                if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).AttValue('SigState')=='GREEN':
+                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).AttValue('GreenEnd')-SimSec <=3:
+                        if vehAttributes[vehsAttNames['Lane\Link']] == '8':
+                            DistanceToSigHead = vehAttributes[vehsAttNames['DistanceToSigHead']]
+                            if DistanceToSigHead >= loc and DistanceToSigHead <= loc+deterctor and vehAttributes[vehsAttNames['No']] not in k2:
+                                k2.append(vehAttributes[vehsAttNames['No']])
+                                G2=min((Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).AttValue('GreenTimeDuration')+ExG),MaxG)                                                  
+                                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).SetAttValue('GreenTimeDuration', G2)
+                continue
 
 
-                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).SetAttValue ('GreenEnd',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('GreenTimeDuration')+Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('GreenStart'))
 
-                if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('Seconds') >= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('GreenEnd'):
-                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('Seconds') < Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('GreenEnd')+2:
-                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).SetAttValue ('SigState','Red')
-                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue ('GreenStart',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('GreenEnd')+4)
-                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).SetAttValue ('GreenStart',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue ('GreenEnd')+4)
-                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).SetAttValue ('GreenStart',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).AttValue ('GreenEnd')+4)
-                if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('Seconds') >= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('GreenEnd')+4:
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue ('SigState','Green')
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).SetAttValue ('SigState','Red')
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(6).SetAttValue ('SigState','Red')
-                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(9).SetAttValue ('SigState','Red')
-                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('Seconds') < Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).AttValue ('GreenEnd')+5:
-                        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(12).SetAttValue ('GreenTimeDuration',7)
+            if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue('SigState')=='RED':
+                if SimSec < Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue('GreenStart'):
+                    G3=MinG
+                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue('GreenTimeDuration', G3)
+            k3=[]
+            for vehAttributes in vehsAttributes:
+                if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue('SigState')=='GREEN':
+                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue('GreenEnd')-SimSec <=3:
+                        if vehAttributes[vehsAttNames['Lane\Link']] == '4':
+                            DistanceToSigHead = vehAttributes[vehsAttNames['DistanceToSigHead']]
+                            if DistanceToSigHead >= loc and DistanceToSigHead <= loc+deterctor and vehAttributes[vehsAttNames['No']] not in k3:
+                                k3.append(vehAttributes[vehsAttNames['No']])
+                                G3=min((Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue('GreenTimeDuration')+ExG),MaxG)                                                  
+                                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue('GreenTimeDuration', G3)
+                continue
+
+            if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).AttValue('SigState')=='RED':
+                if SimSec < Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).AttValue('GreenStart'):
+                    G4=MinG
+                    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).SetAttValue('GreenTimeDuration', G4)
+            k4=[]
+            for vehAttributes in vehsAttributes:
+                if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).AttValue('SigState')=='GREEN':
+                    if Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).AttValue('GreenEnd')-SimSec <=3:
+                        if vehAttributes[vehsAttNames['Lane\Link']] == '5':
+                            DistanceToSigHead = vehAttributes[vehsAttNames['DistanceToSigHead']]
+                            if DistanceToSigHead >= loc and DistanceToSigHead <= loc+deterctor and vehAttributes[vehsAttNames['No']] not in k4:
+                                k4.append(vehAttributes[vehsAttNames['No']])
+                                G4=min((Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).AttValue('GreenTimeDuration')+ExG),MaxG)                                                  
+                                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).SetAttValue('GreenTimeDuration', G4)
+                continue
+
+    if SimSec >= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).AttValue('GreenEnd')-2:
+        if SimSec <= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).AttValue('GreenEnd')+2:
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).SetAttValue('GreenStart', Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).AttValue('GreenEnd')+2)
+            Vissim.Net.SignalControllers.ItemByKey(1).SetAttValue('CycleStart', Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).AttValue('GreenStart')-2)
+    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).SetAttValue('GreenEnd', Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).AttValue('GreenStart') + Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).AttValue('GreenTimeDuration'))
+    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).SetAttValue('GreenStart',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).AttValue('GreenEnd') + 2)
+    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).SetAttValue('GreenEnd',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).AttValue('GreenStart') + Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).AttValue('GreenTimeDuration'))
+    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue('GreenStart',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).AttValue('GreenEnd') + 2)
+    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue('GreenEnd',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue('GreenStart') + Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue('GreenTimeDuration'))
+    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).SetAttValue('GreenStart',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue('GreenEnd') + 2)
+    Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).SetAttValue('GreenEnd',Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).AttValue('GreenStart') + Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).AttValue('GreenTimeDuration'))
 
 
- 
 
 
-                
+    # you have to make a use of simsec to define variable cycle time
+    # To this end, we firs, define three attributes in the current signal controller with the names of CycleStart, CycleEnd, CycleDuration. 
+
+    
+    SimSec = Vissim.Net.SignalControllers.ItemByKey(1).AttValue('SimSec')
+    #we determine Initial values OF CYCLE START
+    if SimSec<=1:
+        Vissim.Net.SignalControllers.ItemByKey(1).SetAttValue('CycleStart', 0)
+
+
+
+    # When we start the simulation, we determine that the signals are operating upon com script.
+    if SimSec<=1:
+
+        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).SetAttValue('ContrByCOM', True)
+        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).SetAttValue('ContrByCOM', True)
+        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue('ContrByCOM', True)
+        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).SetAttValue('ContrByCOM', True)
+        Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).SetAttValue('GreenStart',2)
+
+
+
+    if SimSec >= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).AttValue('GreenStart') - 1:
+        if SimSec <= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).AttValue('GreenEnd') - 1:
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).SetAttValue('SigState', 'GREEN')
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).SetAttValue('SigState', 'RED')
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue('SigState', 'RED')
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).SetAttValue('SigState', 'RED')
+        if SimSec >= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).AttValue('GreenEnd') - 1:
+            if SimSec < Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).AttValue('GreenEnd') + 1:
+                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).SetAttValue('SigState', 'RED')
+                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).SetAttValue('SigState', 'RED')
+                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue('SigState', 'RED')
+                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).SetAttValue('SigState', 'RED')
+
+    if SimSec >= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).AttValue('GreenStart') - 1:
+        if SimSec <= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).AttValue('GreenEnd') - 1:
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).SetAttValue('SigState', 'GREEN')
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue('SigState', 'RED')
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).SetAttValue('SigState', 'RED')
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).SetAttValue('SigState', 'RED')
+
+        if SimSec >= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).AttValue('GreenEnd') - 1:
+            if SimSec < Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).AttValue('GreenEnd') + 1:
+                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).SetAttValue('SigState', 'RED')
+                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).SetAttValue('SigState', 'RED')
+                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue('SigState', 'RED')
+                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).SetAttValue('SigState', 'RED')
+
+    if SimSec >= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue('GreenStart') - 1:
+        if SimSec <= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue('GreenEnd') - 1:
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue('SigState', 'GREEN')
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).SetAttValue('SigState', 'RED')
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).SetAttValue('SigState', 'RED')
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).SetAttValue('SigState', 'RED')
+
+        if SimSec >= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue('GreenEnd') - 1:
+            if SimSec < Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).AttValue('GreenEnd') + 1:
+                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).SetAttValue('SigState', 'RED')
+                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).SetAttValue('SigState', 'RED')
+                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue('SigState', 'RED')
+                Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).SetAttValue('SigState', 'RED')
+
+    if SimSec >= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).AttValue('GreenStart') - 1:
+        if SimSec <= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).AttValue('GreenEnd') - 1:
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).SetAttValue('SigState', 'GREEN')
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue('SigState', 'RED')
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).SetAttValue('SigState', 'RED')
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).SetAttValue('SigState', 'RED')
+
+        if SimSec >= Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).AttValue('GreenEnd') - 1:
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(1).SetAttValue('SigState', 'RED')
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(2).SetAttValue('SigState', 'RED')
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(3).SetAttValue('SigState', 'RED')
+            Vissim.Net.SignalControllers.ItemByKey(1).SGs.ItemByKey(4).SetAttValue('SigState', 'RED')
+
